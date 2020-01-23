@@ -12,12 +12,54 @@ namespace WPFNotification.Core
 {
     public static class NotifyBox
     {
+        #region Constructors
+
+        /// <summary>
+        /// Initialises static members of the <see cref="NotifyBox" /> class.
+        /// </summary>
+        static NotifyBox()
+        {
+            notificationWindows = new List<WindowInfo>();
+            notificationWindowsCount = 0;
+        }
+
+        #endregion
+
+        #region Private Classes
+
+        /// <summary>
+        /// Window metadata.
+        /// </summary>
+        private sealed class WindowInfo
+        {
+            public int ID { get; set; }
+
+            /// <summary>
+            /// Gets or sets the display duration.
+            /// </summary>
+            /// <value>
+            /// The display duration.
+            /// </value>
+            public TimeSpan DisplayDuration { get; set; }
+
+            /// <summary>
+            /// Gets or sets the window.
+            /// </summary>
+            /// <value>
+            /// The window.
+            /// </value>
+            public Window Window { get; set; }
+        }
+
+        #endregion
+
         #region Fields
+
         /// <summary>
         /// Max number of notifications window
         /// </summary>
         private const int MAX_NOTIFICATIONS = 1;
-      
+
         /// <summary>
         /// Number of notification windows
         /// </summary>
@@ -31,30 +73,12 @@ namespace WPFNotification.Core
         /// <summary>
         /// list of notifications window.
         /// </summary>
-        private static List<WindowInfo> notificationWindows;
-
-        /// <summary>
-        /// buffer list of notifications window.
-        /// </summary>
-        private static List<WindowInfo> notificationsBuffer;
-
-        #endregion
-
-        #region Constructors
-
-        /// <summary>
-        /// Initialises static members of the <see cref="NotifyBox"/> class.
-        /// </summary>
-        static NotifyBox()
-        {
-            notificationWindows = new List<WindowInfo>();
-            notificationsBuffer = new List<WindowInfo>();
-            notificationWindowsCount = 0;
-        }
+        private static readonly List<WindowInfo> notificationWindows;
 
         #endregion
 
         #region Public Static Methods
+
         /// <summary>
         /// Shows the specified notification.
         /// </summary>
@@ -62,8 +86,9 @@ namespace WPFNotification.Core
         /// <param name="configuration">The notification configuration object.</param>
         public static void Show(object content, NotificationConfiguration configuration)
         {
-            DataTemplate notificationTemplate = (DataTemplate)Application.Current.Resources[configuration.TemplateName];
-            Window window = new Window()
+            var notificationTemplate = (DataTemplate)Application.Current.Resources[configuration.TemplateName];
+
+            var window = new Window
             {
                 Title = "",
                 Width = configuration.Width.Value,
@@ -78,6 +103,7 @@ namespace WPFNotification.Core
                 UseLayoutRounding = true,
                 ContentTemplate = notificationTemplate
             };
+
             Show(window, configuration.DisplayDuration, configuration.NotificationFlowDirection);
         }
 
@@ -97,31 +123,47 @@ namespace WPFNotification.Core
         /// <param name="displayDuration">The display duration.</param>
         public static void Show(Window window, TimeSpan displayDuration, NotificationFlowDirection notificationFlowDirection)
         {
-            BehaviorCollection behaviors = Interaction.GetBehaviors(window);
+            var behaviors = Interaction.GetBehaviors(window);
             behaviors.Add(new FadeBehavior());
             behaviors.Add(new SlideBehavior());
             SetWindowDirection(window, notificationFlowDirection);
             notificationWindowsCount += 1;
-            WindowInfo windowInfo = new WindowInfo()
+
+            var windowInfo = new WindowInfo
             {
                 ID = notificationWindowsCount,
                 DisplayDuration = displayDuration,
                 Window = window
             };
+
             windowInfo.Window.Closed += Window_Closed;
+
             if (notificationWindows.Count + 1 > MAX_NOTIFICATIONS)
             {
-                notificationsBuffer.Add(windowInfo);
+                var noti = notificationWindows.FirstOrDefault();
+
+                if (noti != null)
+                {
+                    var closeBehaviors = Interaction.GetBehaviors(noti.Window);
+                    var fadeBehavior = closeBehaviors.OfType<FadeBehavior>().First();
+                    fadeBehavior.FadeOut();
+
+                    var slideBehavior = closeBehaviors.OfType<SlideBehavior>().First();
+                    slideBehavior.SlideOut();
+
+                    notificationWindows.Remove(noti);
+                    noti.Window.Close();
+                }
             }
-            else
-            {
-                Observable
-              .Timer(displayDuration)
-              .ObserveOnDispatcher()
-              .Subscribe(x => OnTimerElapsed(windowInfo));
-                notificationWindows.Add(windowInfo);
-                window.Show();
-            }
+
+            notificationWindows.Add(windowInfo);
+
+            Observable
+                .Timer(displayDuration)
+                .ObserveOnDispatcher()
+                .Subscribe(x => OnTimerElapsed(windowInfo));
+
+            window.Show();
         }
 
         /// <summary>
@@ -130,11 +172,9 @@ namespace WPFNotification.Core
         public static void ClearNotifications()
         {
             notificationWindows.Clear();
-            notificationsBuffer.Clear();
-           
+
             notificationWindowsCount = 0;
         }
-
 
         #endregion
 
@@ -144,14 +184,15 @@ namespace WPFNotification.Core
         /// Called when the timer has elapsed. Removes any stale notifications.
         /// </summary>
         /// <param name="sender">The sender.</param>
-        /// <param name="e">The <see cref="System.Timers.ElapsedEventArgs"/> instance containing the event data.</param>
+        /// <param name="e">The <see cref="System.Timers.ElapsedEventArgs" /> instance containing the event data.</param>
         private static void OnTimerElapsed(WindowInfo windowInfo)
         {
             if (notificationWindows.Count > 0 && !notificationWindows.Any(i => i.ID == windowInfo.ID))
             {
                 return;
             }
-            DateTime now = DateTime.Now;
+
+            var now = DateTime.Now;
 
             if (windowInfo.Window.IsMouseOver)
             {
@@ -162,60 +203,33 @@ namespace WPFNotification.Core
             }
             else
             {
-                BehaviorCollection behaviors = Interaction.GetBehaviors(windowInfo.Window);
-                FadeBehavior fadeBehavior = behaviors.OfType<FadeBehavior>().First();
-                SlideBehavior slideBehavior = behaviors.OfType<SlideBehavior>().First();
-
+                var behaviors = Interaction.GetBehaviors(windowInfo.Window);
+                var fadeBehavior = behaviors.OfType<FadeBehavior>().First();
                 fadeBehavior.FadeOut();
+
+                var slideBehavior = behaviors.OfType<SlideBehavior>().First();
                 slideBehavior.SlideOut();
 
                 EventHandler eventHandler = null;
+
                 eventHandler = (sender2, e2) =>
                 {
                     fadeBehavior.FadeOutCompleted -= eventHandler;
                     notificationWindows.Remove(windowInfo);
                     windowInfo.Window.Close();
-
-                    if (notificationsBuffer != null && notificationsBuffer.Count > 0)
-                    {
-                        var BufferWindowInfo = notificationsBuffer.First();
-                        Observable
-                         .Timer(BufferWindowInfo.DisplayDuration)
-                         .ObserveOnDispatcher()
-                         .Subscribe(x => OnTimerElapsed(BufferWindowInfo));
-                        notificationWindows.Add(BufferWindowInfo);
-                        BufferWindowInfo.Window.Show();
-                        notificationsBuffer.Remove(BufferWindowInfo);
-                    }
                 };
+
                 fadeBehavior.FadeOutCompleted += eventHandler;
             }
         }
 
         /// <summary>
-        /// Called when the window is about to close. 
+        /// Called when the window is about to close.
         /// Remove the notification window from notification windows list and add one from the buffer list.
         /// </summary>
-        
-        static void Window_Closed(object sender, EventArgs e)
+        private static void Window_Closed(object sender, EventArgs e)
         {
             var window = (Window)sender;
-            if (notificationWindows.Count > 0 && notificationWindows.First().Window == window)
-            {
-                WindowInfo windowInfo = notificationWindows.First();
-                notificationWindows.Remove(windowInfo);
-                if (notificationsBuffer != null && notificationsBuffer.Count > 0)
-                {
-                    var BufferWindowInfo = notificationsBuffer.First();
-                    Observable
-                     .Timer(BufferWindowInfo.DisplayDuration)
-                     .ObserveOnDispatcher()
-                     .Subscribe(x => OnTimerElapsed(BufferWindowInfo));
-                    notificationWindows.Add(BufferWindowInfo);
-                    BufferWindowInfo.Window.Show();
-                    notificationsBuffer.Remove(BufferWindowInfo);
-                }
-            }
         }
 
         /// <summary>
@@ -252,33 +266,6 @@ namespace WPFNotification.Core
                     window.Top = corner.Y - window.Height - window.Margin.Top;
                     break;
             }
-        }
-
-        #endregion
-
-        #region Private Classes
-
-        /// <summary>
-        /// Window metadata.
-        /// </summary>
-        private sealed class WindowInfo
-        {
-            public int ID { get; set; }
-            /// <summary>
-            /// Gets or sets the display duration.
-            /// </summary>
-            /// <value>
-            /// The display duration.
-            /// </value>
-            public TimeSpan DisplayDuration { get; set; }
-
-            /// <summary>
-            /// Gets or sets the window.
-            /// </summary>
-            /// <value>
-            /// The window.
-            /// </value>
-            public Window Window { get; set; }
         }
 
         #endregion
